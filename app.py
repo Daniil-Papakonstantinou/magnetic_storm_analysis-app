@@ -3548,12 +3548,6 @@ with main_content_col:
         )
 
     if not st.session_state.analysis_started:
-        st.markdown(
-        "<div style='max-width:600px; background:#e6f2ff; padding:10px; border-radius:8px;'>"
-        "Set the parameters in the Analysis options menu and click ‘START’."
-        "</div>",
-        unsafe_allow_html=True
-    )
         st.stop()
 
     try:
