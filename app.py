@@ -3089,152 +3089,114 @@ def render_pdf_guide_button(pdf_filename: str = "parameters.pdf"):
         st.caption(f"Guide PDF not found. Put {pdf_filename} in the same folder as this app file.")
         return
 
-    pdf_bytes = pdf_path.read_bytes()
-    pdf_b64 = base64.b64encode(pdf_bytes).decode("ascii")
-    # Hide the browser PDF viewer toolbar so the data-URI title is not shown above the Guide PDF.
-    pdf_src = f"data:application/pdf;base64,{pdf_b64}#toolbar=0&navpanes=0&scrollbar=1&view=FitH"
-    guide_id = f"custom_guide_toggle_{uuid4().hex}"
-    safe_pdf_name = escape(pdf_path.name)
+    # Do not render or preload an expandable PDF panel.
+    # The PDF is converted to bytes only so the click handler can open/download it
+    # after the user presses the Algorithm parameters button.
+    import json
+    import streamlit.components.v1 as components
 
-    # Use a CSS-only checkbox toggle instead of JavaScript.
-    # This lets the X button close the in-app PDF panel reliably inside Streamlit.
-    guide_html = f'''
+    pdf_b64 = base64.b64encode(pdf_path.read_bytes()).decode("ascii")
+    button_id = f"algorithm_params_{uuid4().hex}"
+    safe_pdf_name = json.dumps(pdf_path.name)
+    safe_button_id = json.dumps(button_id)
+
+    button_html = f"""
     <style>
-    .custom-guide-wrapper {{
-        position: relative !important;
-        width: fit-content !important;
-        max-width: fit-content !important;
-        margin: 0 0 0.45rem 0 !important;
-        padding: 0 !important;
-        background: transparent !important;
-        border: none !important;
-        overflow: visible !important;
-        z-index: 2147483000 !important;
-    }}
-
-    .custom-guide-toggle {{
-        position: absolute !important;
-        width: 1px !important;
-        height: 1px !important;
-        opacity: 0 !important;
-        pointer-events: none !important;
-    }}
-
-    .custom-guide-open.guide-pdf-button {{
-        list-style: none !important;
-        cursor: pointer !important;
-        user-select: none !important;
-        background: #ffffff !important;
-        background-color: #ffffff !important;
-        opacity: 1 !important;
-        filter: none !important;
-    }}
-
-    .custom-guide-open.guide-pdf-button:hover,
-    .custom-guide-open.guide-pdf-button:focus,
-    .custom-guide-open.guide-pdf-button:active {{
-        background: #ffffff !important;
-        background-color: #ffffff !important;
-        color: #000000 !important;
-        opacity: 1 !important;
-        filter: none !important;
-        text-decoration: none !important;
-    }}
-
-    /* Floating Guide panel: open directly below the Guide button, but stay above the app content. */
-    .custom-guide-body {{
-        display: none !important;
-        position: absolute !important;
-        top: calc(100% + 6px) !important;
-        left: 0 !important;
-        z-index: 2147483000 !important;
-        width: 780px !important;
-        max-width: calc(100vw - 60px) !important;
-        max-height: calc(100vh - 150px) !important;
-        margin-top: 0 !important;
-        padding: 0.6rem !important;
-        border-radius: 12px !important;
-        border: 1px solid rgba(0,0,0,0.14) !important;
-        background: #ffffff !important;
-        box-shadow: 0 12px 34px rgba(0,0,0,0.32) !important;
-        overflow: auto !important;
-    }}
-
-    .custom-guide-toggle:checked ~ .custom-guide-body {{
-        display: block !important;
-    }}
-
-    .custom-guide-toolbar {{
-        position: sticky !important;
-        top: 0 !important;
-        z-index: 2147483001 !important;
-        display: flex !important;
-        align-items: center !important;
-        justify-content: flex-end !important;
-        gap: 8px !important;
-        padding: 0 0 0.5rem 0 !important;
+    html, body {{
         margin: 0 !important;
-        background: #ffffff !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        background: transparent !important;
     }}
 
-    .custom-guide-download,
-    .custom-guide-close {{
+    .guide-pdf-button {{
         display: inline-flex !important;
         align-items: center !important;
         justify-content: center !important;
-        height: 34px !important;
-        padding: 0 0.75rem !important;
-        border-radius: 8px !important;
+        gap: 0.35rem !important;
+        padding: 0.45rem 0.75rem !important;
+        margin: 0 0 0.45rem 0 !important;
+        border-radius: 9px !important;
         border: 1px solid rgba(0,0,0,0.22) !important;
-        background: #ffffff !important;
+        background: rgba(255,255,255,0.92) !important;
         color: #111111 !important;
-        font-size: 0.92rem !important;
-        font-weight: 800 !important;
-        line-height: 1 !important;
+        font-size: 0.95rem !important;
+        font-weight: 700 !important;
+        line-height: 1.1 !important;
         text-decoration: none !important;
-        box-shadow: 0 1px 2px rgba(0,0,0,0.08) !important;
+        box-shadow: 0 1px 2px rgba(0,0,0,0.10) !important;
         cursor: pointer !important;
         user-select: none !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif !important;
     }}
 
-    .custom-guide-close {{
-        width: 34px !important;
-        padding: 0 !important;
-        font-size: 1.15rem !important;
-    }}
-
-    .custom-guide-download:hover,
-    .custom-guide-close:hover {{
-        background: #f9fafb !important;
+    .guide-pdf-button:hover,
+    .guide-pdf-button:focus,
+    .guide-pdf-button:active {{
+        background: #ffffff !important;
         border-color: rgba(0,0,0,0.35) !important;
         color: #000000 !important;
         text-decoration: none !important;
-    }}
-
-    .custom-guide-body iframe {{
-        width: 100% !important;
-        height: min(790px, calc(100vh - 250px)) !important;
-        border: 1px solid #d1d5db !important;
-        border-radius: 10px !important;
-        background: white !important;
+        outline: none !important;
     }}
     </style>
 
-    <div class="custom-guide-wrapper">
-        <input id="{guide_id}" class="custom-guide-toggle" type="checkbox">
-        <label for="{guide_id}" class="custom-guide-open guide-pdf-button">Algorithm parameters</label>
-        <div class="custom-guide-body">
-            <div class="custom-guide-toolbar">
-                <a class="custom-guide-download" href="{pdf_src}" download="{safe_pdf_name}">Download PDF</a>
-                <label for="{guide_id}" class="custom-guide-close" title="Close PDF" aria-label="Close PDF">×</label>
-            </div>
-            <iframe src="{pdf_src}"></iframe>
-        </div>
-    </div>
-    '''
-    st.markdown(guide_html, unsafe_allow_html=True)
+    <button id="{button_id}" class="guide-pdf-button" type="button">Algorithm parameters</button>
 
+    <script>
+    (function () {{
+        const buttonId = {safe_button_id};
+        const filename = {safe_pdf_name};
+        const pdfBase64 = "{pdf_b64}";
 
+        function base64ToBlobUrl(base64) {{
+            const binary = atob(base64);
+            const chunkSize = 1024 * 64;
+            const chunks = [];
+
+            for (let offset = 0; offset < binary.length; offset += chunkSize) {{
+                const slice = binary.slice(offset, offset + chunkSize);
+                const bytes = new Uint8Array(slice.length);
+                for (let i = 0; i < slice.length; i++) {{
+                    bytes[i] = slice.charCodeAt(i);
+                }}
+                chunks.push(bytes);
+            }}
+
+            const blob = new Blob(chunks, {{ type: "application/pdf" }});
+            return URL.createObjectURL(blob);
+        }}
+
+        function downloadAndOpenPdf() {{
+            const pdfUrl = base64ToBlobUrl(pdfBase64);
+
+            const downloadLink = document.createElement("a");
+            downloadLink.href = pdfUrl;
+            downloadLink.download = filename;
+            downloadLink.target = "_blank";
+            downloadLink.rel = "noopener noreferrer";
+            downloadLink.style.display = "none";
+            document.body.appendChild(downloadLink);
+            downloadLink.click();
+            downloadLink.remove();
+
+            // Do NOT also call window.open(pdfUrl). That creates a second PDF
+            // tab with a random blob URL. This single click keeps the named
+            // parameters.pdf download/open behavior and prevents duplicate tabs.
+            setTimeout(function () {{
+                URL.revokeObjectURL(pdfUrl);
+            }}, 60000);
+        }}
+
+        const btn = document.getElementById(buttonId);
+        if (btn) {{
+            btn.addEventListener("click", downloadAndOpenPdf);
+        }}
+    }})();
+    </script>
+    """
+
+    components.html(button_html, height=48, scrolling=False)
 st.markdown(f"""
 <style>
 /* Keep the options panel flush to the left and let the right column hold all output. */
