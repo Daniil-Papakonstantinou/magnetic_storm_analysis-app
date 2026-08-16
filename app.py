@@ -795,6 +795,27 @@ def is_missing(val) -> bool:
     )
 
 
+def adjacent_valid_omni_value(
+    omni: pd.DataFrame,
+    boundary_time,
+    col: str,
+    direction_hours: int,
+) -> Optional[float]:
+    """Return the valid OMNI value exactly one hour outside a main-phase boundary."""
+    if omni is None or omni.empty or "t_utc" not in omni.columns or col not in omni.columns:
+        return None
+
+    target_time = pd.to_datetime(boundary_time, utc=True) + pd.Timedelta(hours=direction_hours)
+    matches = omni.loc[omni["t_utc"] == target_time, col]
+    if matches.empty:
+        return None
+
+    value = matches.iloc[0]
+    if pd.isna(value) or is_missing(value):
+        return None
+    return float(value)
+
+
 def compute_data_complete_metrics(filtered_df: pd.DataFrame, omni_df: pd.DataFrame):
     """Build Stage 3 data-complete storms, main phase rows, peak delays, and metrics."""
     if filtered_df.empty:
@@ -837,7 +858,7 @@ def compute_data_complete_metrics(filtered_df: pd.DataFrame, omni_df: pd.DataFra
         storm_replacements = []
         storm_missing_records = []
 
-        # A storm remains data-complete if missing values are absent or only isolated single values can be replaced.
+        # A storm remains data-complete if there are no missing values, or if any missing values are isolated single values that can be replaced.
         for col in ["IMF", "Bz", "Vsw", "Ey"]:
             values = mp[col].to_numpy(copy=True)
             times = mp["t_utc"].to_numpy(copy=True)
@@ -870,23 +891,40 @@ def compute_data_complete_metrics(filtered_df: pd.DataFrame, omni_df: pd.DataFra
 
             if not col_reject:
                 for i in missing_idx:
-                    if i == 0 or i == len(values) - 1:
+                    current_time = pd.to_datetime(times[i], utc=True)
+
+                    if len(values) == 1:
+                        prev = adjacent_valid_omni_value(omni, current_time, col, -1)
+                        nxt = adjacent_valid_omni_value(omni, current_time, col, 1)
+                    elif i == 0:
+                        prev = adjacent_valid_omni_value(omni, current_time, col, -1)
+                        nxt = values[i + 1]
+                    elif i == len(values) - 1:
+                        prev = values[i - 1]
+                        nxt = adjacent_valid_omni_value(omni, current_time, col, 1)
+                    else:
+                        prev = values[i - 1]
+                        nxt = values[i + 1]
+
+                    if (
+                        prev is None
+                        or nxt is None
+                        or pd.isna(prev)
+                        or pd.isna(nxt)
+                        or is_missing(prev)
+                        or is_missing(nxt)
+                    ):
                         reject = True
                         col_reject = True
                         break
-                    prev = values[i - 1]
-                    nxt = values[i + 1]
-                    if is_missing(prev) or is_missing(nxt):
-                        reject = True
-                        col_reject = True
-                        break
+
                     replaced_val = (float(prev) + float(nxt)) / 2.0
                     storm_replacements.append(
                         {
                             "storm_id": sid,
                             "episode_id": int(s["episode_id"]),
                             "parameter": col,
-                            "t_utc": pd.to_datetime(times[i], utc=True),
+                            "t_utc": current_time,
                             "orig_value": values[i],
                             "replaced_value": replaced_val,
                             "row_index": i,
@@ -1096,11 +1134,11 @@ def class_name(Dst_min: float) -> str:
     if pd.isna(Dst_min):
         return "other"
     if Dst_min <= -250.0:
-        return "super-storm (Dst_min <= -250)"
+        return "super-storm (Dst_min ≤ -250)"
     if Dst_min <= -100.0:
-        return "intense (-250 < Dst_min <= -100)"
+        return "intense (-250 < Dst_min ≤ -100)"
     if Dst_min <= -50.0:
-        return "moderate (-100 < Dst_min <= -50)"
+        return "moderate (-100 < Dst_min ≤ -50)"
     return "other"
 
 
@@ -1116,9 +1154,9 @@ def class_order_key(name: str) -> int:
 
 def count_by_class(df: pd.DataFrame, count_label: str) -> pd.DataFrame:
     classes = [
-        "moderate (-100 < Dst_min <= -50)",
-        "intense (-250 < Dst_min <= -100)",
-        "super-storm (Dst_min <= -250)",
+        "moderate (-100 < Dst_min ≤ -50)",
+        "intense (-250 < Dst_min ≤ -100)",
+        "super-storm (Dst_min ≤ -250)",
     ]
     out = pd.DataFrame({"class": classes})
     if df.empty or "Dst_min" not in df.columns:
@@ -1143,9 +1181,9 @@ def count_by_class(df: pd.DataFrame, count_label: str) -> pd.DataFrame:
 
 def summarize_by_class(df: pd.DataFrame, count_label: str, avg_cols: List[Tuple[str, str]]) -> pd.DataFrame:
     classes = [
-        "moderate (-100 < Dst_min <= -50)",
-        "intense (-250 < Dst_min <= -100)",
-        "super-storm (Dst_min <= -250)",
+        "moderate (-100 < Dst_min ≤ -50)",
+        "intense (-250 < Dst_min ≤ -100)",
+        "super-storm (Dst_min ≤ -250)",
     ]
     out = pd.DataFrame({"class": classes})
 
@@ -1850,16 +1888,24 @@ def render_correlation_plots(metrics_df: pd.DataFrame):
             cols[j].pyplot(fig, clear_figure=True)
 
 
-def validate_parameter_mainphase_values(mp: pd.DataFrame, col: str) -> Tuple[bool, Optional[np.ndarray]]:
+def validate_parameter_mainphase_values(
+    mp: pd.DataFrame,
+    omni: pd.DataFrame,
+    col: str,
+) -> Tuple[bool, Optional[np.ndarray]]:
     """Return validated values for one solar-wind parameter during one storm main phase.
 
-    The rule matches the Stage 3 data-completeness check for one parameter: a single internal missing value is replaced by the average of
-    its two neighbours; edge missing values or consecutive missing values fail.
+    The rule matches the Stage 3 data-completeness check for one parameter. Isolated
+    internal missing values are interpolated from their two neighbouring values.
+    An isolated missing value at t_start or t_min may also be interpolated by using
+    the valid OMNI value exactly one hour outside the main-phase interval.
+    Consecutive missing values or unavailable neighbours fail the check.
     """
-    if mp is None or mp.empty or col not in mp.columns:
+    if mp is None or mp.empty or col not in mp.columns or "t_utc" not in mp.columns:
         return False, None
 
     values = pd.to_numeric(mp[col], errors="coerce").to_numpy(copy=True)
+    times = pd.to_datetime(mp["t_utc"], utc=True, errors="coerce").to_numpy(copy=True)
     missing_idx = [i for i, v in enumerate(values) if is_missing(v)]
 
     if not missing_idx:
@@ -1875,12 +1921,31 @@ def validate_parameter_mainphase_values(mp: pd.DataFrame, col: str) -> Tuple[boo
             run_len = 1
 
     for i in missing_idx:
-        if i == 0 or i == len(values) - 1:
+        current_time = pd.to_datetime(times[i], utc=True)
+
+        if len(values) == 1:
+            prev = adjacent_valid_omni_value(omni, current_time, col, -1)
+            nxt = adjacent_valid_omni_value(omni, current_time, col, 1)
+        elif i == 0:
+            prev = adjacent_valid_omni_value(omni, current_time, col, -1)
+            nxt = values[i + 1]
+        elif i == len(values) - 1:
+            prev = values[i - 1]
+            nxt = adjacent_valid_omni_value(omni, current_time, col, 1)
+        else:
+            prev = values[i - 1]
+            nxt = values[i + 1]
+
+        if (
+            prev is None
+            or nxt is None
+            or pd.isna(prev)
+            or pd.isna(nxt)
+            or is_missing(prev)
+            or is_missing(nxt)
+        ):
             return False, None
-        prev = values[i - 1]
-        nxt = values[i + 1]
-        if is_missing(prev) or is_missing(nxt):
-            return False, None
+
         values[i] = (float(prev) + float(nxt)) / 2.0
 
     return True, values
@@ -1945,7 +2010,7 @@ def build_parameter_peak_table(filtered_df: pd.DataFrame, omni_df: pd.DataFrame,
             continue
         mp.sort_values("t_utc", inplace=True)
 
-        ok, values = validate_parameter_mainphase_values(mp, source_col)
+        ok, values = validate_parameter_mainphase_values(mp, omni, source_col)
         if not ok or values is None or len(values) == 0:
             continue
 
@@ -2385,9 +2450,9 @@ def render_overview_section(ctx: Dict):
 
             if "class" in filtered_class_show_df.columns:
                 filtered_class_show_df["class"] = filtered_class_show_df["class"].replace({
-                    "moderate (-100 < Dst_min <= -50)": "moderate",
-                    "intense (-250 < Dst_min <= -100)": "intense",
-                    "super-storm (Dst_min <= -250)": "super-storm",
+                    "moderate (-100 < Dst_min ≤ -50)": "moderate",
+                    "intense (-250 < Dst_min ≤ -100)": "intense",
+                    "super-storm (Dst_min ≤ -250)": "super-storm",
                 })
             render_static_scroll_table(filtered_class_show_df, key="summary_filtered_class_table", fit_to_container=True, equal_col_widths=True)
 
@@ -2650,6 +2715,22 @@ def render_data_complete_section(ctx: Dict):
         fit_to_container=True,
         equal_col_widths=False,
     )
+
+    if (
+        not stage3_rejected_quality_df.empty
+        and "missing_value_hours" in stage3_rejected_quality_df.columns
+        and pd.to_numeric(
+            stage3_rejected_quality_df["missing_value_hours"],
+            errors="coerce",
+        ).eq(1).any()
+    ):
+        st.warning(
+            "! missing_value_hours = 1 means that only one missing hour falls "
+            "within the main phase. The storm was rejected because the missing "
+            "value occurred at t_start or t_min and could not be interpolated: "
+            "the adjacent OMNI value one hour outside the main phase was "
+            "unavailable or also missing."
+        )
 
 
 
@@ -3082,6 +3163,10 @@ def render_extras_section(ctx: Dict):
                         st.experimental_rerun()
                     except Exception:
                         pass
+
+    st.warning(
+        "! Eyp and Eyi are not offered as separate parameter-specific options. Because Ey is derived from both Bz and V, the Eyp and Eyi analyses require data-completeness for both parameters and therefore use the Stage 3 data-complete storm sample."
+    )
 
     selected_parameter_label = st.session_state.extras_selected_parameter
     selected_option = extras_table_options[selected_parameter_label]
