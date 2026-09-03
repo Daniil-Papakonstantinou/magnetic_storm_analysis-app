@@ -3768,7 +3768,7 @@ with main_options_col:
     st.markdown(f"<div style='height:{ALGORITHM_PARAMETERS_ANALYSIS_TOP_SPACER}'></div>", unsafe_allow_html=True)
     render_algorithm_parameters_pdf_button()
     with st.expander("Analysis settings", expanded=False):
-        shift_plus_1_hour = st.checkbox("Shift timestamps by +1 hour", value=True)
+        shift_plus_1_hour = st.checkbox("Shift timestamps by +1 hour", value=False)
 
         analysis_options_title("Storm detection")
         episode_level = st.number_input("EPISODE_LEVEL", value=-20, step=1)
