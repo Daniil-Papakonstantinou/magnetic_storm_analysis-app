@@ -14,7 +14,7 @@ The app follows a three-stage workflow:
    Detects disturbed Dst episodes and storm minima.
 
 2. **Main phase filtering**  
-   Uses the detected storms to identify `t_start` and retain valid main phase intervals.
+   Uses the detected storms to identify main phase onsets and retain valid main phase intervals.
 
 3. **Data-complete storms + metrics**  
    Checks main phase solar wind data completeness and computes the final storm metrics.
