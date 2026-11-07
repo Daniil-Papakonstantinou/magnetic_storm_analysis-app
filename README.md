@@ -8,7 +8,7 @@ The algorithm description, parameter definitions, and analysis workflow are prov
 
 ## Associated Publication
 
-[Research paper (arXiv)](https://arxiv.org/abs/2610.41217)
+[Research paper (arXiv)](https://doi.org/10.48550/arXiv.2610.41217)
 
 [Archived software release v1.0.0 (Zenodo)](https://doi.org/10.5281/zenodo.22281855)
 
