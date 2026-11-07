@@ -6,6 +6,12 @@ The data used are from NASA OMNIWeb.
 
 The algorithm description, parameter definitions, and analysis workflow are provided in `parameters.pdf`.
 
+## Associated Publication
+
+[Research paper (arXiv)](https://arxiv.org/abs/2610.41217)
+
+[Archived software release v1.0.0 (Zenodo)](https://doi.org/10.5281/zenodo.22281855)
+
 ## App workflow
 
 The app follows a three-stage workflow:
